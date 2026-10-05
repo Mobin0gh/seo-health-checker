@@ -89,33 +89,71 @@ class HtmlAnalyzer:
 
 ```python
 from app.contracts import AnalysisResult, FetchResult, HealthReport, Issue, Severity
+from app.scorer import ResourceState, ScoreInput
 
 class HealthScorer:
-    def score(
-        self,
-        fetch: FetchResult,
-        analysis: AnalysisResult,
-    ) -> HealthReport:
+    def score(self, inputs: ScoreInput) -> HealthReport:
         """Generate issues and compute a 0–100 score.
 
         Rules:
-        * Critical issues (e.g. non-2xx status, SSL failure) drive the score
+        * Critical issues (e.g. fetch failure, non-2xx status) drive the score
           toward 0.
-        * Warnings (e.g. missing meta description, long title) lower the score
+        * Warnings (e.g. slow response, missing sitemap) lower the score
           moderately.
         * Info items are advisory and do not materially affect the score.
         * The final score is clamped to ``[0, 100]``.
         * Issues must each carry a stable ``code``, a ``Severity``, a Persian
           ``message``, and optional ``details``.
 
-        Returns a populated ``HealthReport``. ``measurements`` must be the
-        analyzer's measurements merged with any fetch-level measurements.
+        Returns a populated ``HealthReport``. ``measurements`` includes both
+        analyzer measurements and scorer-specific measurements with stable,
+        namespaced keys (e.g., ``scorer.http_status``, ``scorer.robots_exists``).
         """
         ...
 ```
 
-**Consumes:** `FetchResult`, `AnalysisResult`.  
+**Consumes:** `ScoreInput` (see below).
 **Produces:** `HealthReport`.
+
+---
+
+### ScoreInput
+
+A single dataclass carrying all inputs needed to produce a health report.
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+from app.contracts import AnalysisResult, FetchResult
+from app.scorer import ResourceState
+
+@dataclass
+class ScoreInput:
+    requested_url: str
+    # Fetch
+    fetch: Optional[FetchResult] = None
+    fetch_failure_code: Optional[str] = None  # sanitized when fetch failed
+    # Analysis
+    analysis: Optional[AnalysisResult] = None
+    analysis_failed: bool = False
+    analysis_reason: Optional[str] = None
+    # Robots
+    robots_exists: Optional[ResourceState] = None
+    robots_status: Optional[int] = None
+    robots_reason: Optional[str] = None
+    # Sitemap
+    sitemap_exists: Optional[ResourceState] = None
+    sitemap_valid: Optional[bool] = None
+    sitemap_status: Optional[int] = None
+    sitemap_url_count: int = 0
+    sitemap_reason: Optional[str] = None
+    # Links
+    total_unique_links: int = 0
+    checked_links: int = 0
+    confirmed_broken_count: int = 0
+    broken_url_samples: list[str] = field(default_factory=list)
+    links_deadline_interrupted: bool = False
+```
 
 ---
 

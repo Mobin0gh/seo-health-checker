@@ -36,3 +36,5 @@ run_tests.py
 simple_runner.py
 test_runner.py
 IMPLEMENTATION_COMPLETE.md
+
+out.txt
