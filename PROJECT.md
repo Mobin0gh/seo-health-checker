@@ -44,10 +44,18 @@ Non-negotiable SSRF/network/security requirements:
 | app/__init__.py | Package exports + __version__ | IMPLEMENTED |
 | app/security.py | SSRF-hardened async HTTP client (validate_url, resolve_and_validate_host, rewrite_url_to_ip, _ValidatedTransport, fetch_url) | IMPLEMENTED |
 | tests/test_security.py | 66 unittest tests covering URL validation, DNS resolution, public routability, URL rewriting, successful fetches, failure cases | IMPLEMENTED |
-| fetcher/ | TODO per README — not implemented | PLANNED |
-| analyzer/ | TODO per README — not implemented | PLANNED |
-| scorer/ | TODO per README — not implemented | PLANNED |
-| main.py / FastAPI app | Not present | NOT IMPLEMENTED |
+| app/analyzer/ | HTML analysis & measurements (Task 3) | IMPLEMENTED |
+| tests/test_analyzer.py | 69 unittest tests | IMPLEMENTED |
+| app/linkchecker/ | robots.txt, sitemap.xml, internal links (Task 4) | IMPLEMENTED |
+| tests/test_linkchecker.py | 14 unittest tests | IMPLEMENTED |
+| app/scorer/ | issue generation & scoring (Task 5) | IMPLEMENTED |
+| tests/test_scorer.py | 45 unittest tests | IMPLEMENTED |
+| app/orchestrator.py | ties fetch, analyzer, resource checker, scorer together (Task 6) | IMPLEMENTED |
+| app/ratelimit.py | per-client-IP rolling window rate limiter (Task 6) | IMPLEMENTED |
+| app/api.py | FastAPI app, POST /check, middleware rate limiting, error mapping (Task 6) | IMPLEMENTED |
+| tests/test_api.py | 24 focused unittest tests | IMPLEMENTED |
+| requirements.txt | direct runtime deps | IMPLEMENTED |
+| Dockerfile | runtime image | IMPLEMENTED |
 
 ## 6. Implementation Status
 
@@ -55,10 +63,10 @@ Non-negotiable SSRF/network/security requirements:
 |------|--------|----------|
 | Task 1 | IMPLEMENTED AND VERIFIED | app/contracts.py, app/schemas.py, app/__init__.py exist; imports work; shared types match DEVELOPMENT.md interface |
 | Task 2 | IMPLEMENTED AND VERIFIED | app/security.py implements SSRF-hardened fetcher; 66/66 tests pass; all security requirements implemented and tested |
-| Task 3 | IMPLEMENTED AND VERIFIED | app/analyzer/__init__.py, app/analyzer/analyzer.py; 62/62 tests pass; all 128 tests pass (66 security + 62 analyzer) |
-| Task 4 | Not started | No robots/sitemap/internal-links module |
-| Task 5 | Not started | No scoring/issue generation module |
-| Task 6 | Not started | No integration/rate-limiting/Docker |
+| Task 3 | IMPLEMENTED AND VERIFIED | app/analyzer/__init__.py, app/analyzer/analyzer.py; 69/69 tests pass |
+| Task 4 | IMPLEMENTED AND VERIFIED | app/linkchecker/__init__.py, resources.py, linkchecker.py, results.py; 14/14 tests pass |
+| Task 5 | IMPLEMENTED AND VERIFIED | app/scorer/__init__.py, scorer.py; 45/45 tests pass |
+| Task 6 | IMPLEMENTED AND VERIFIED | app/orchestrator.py, app/ratelimit.py, app/api.py, tests/test_api.py; 24/24 focused tests pass; full suite 218/218 pass; Dockerfile and README updated |
 
 ## 7. Specification Gaps / Discrepancies
 
@@ -73,10 +81,10 @@ Non-negotiable SSRF/network/security requirements:
 
 - Task 1 — contracts/project skeleton ✅ COMPLETE
 - Task 2 — secure HTTP fetcher + security tests ✅ COMPLETE
-- Task 3 — HTML analyzer ⏳ PLANNED
-- Task 4 — robots/sitemap + internal links ⏳ PLANNED
-- Task 5 — scoring + issues ⏳ PLANNED
-- Task 6 — integration + rate limiting + Docker + full test suite ⏳ PLANNED
+- Task 3 — HTML analyzer ✅ COMPLETE
+- Task 4 — robots/sitemap + internal links ✅ COMPLETE
+- Task 5 — scoring + issues ✅ COMPLETE
+- Task 6 — integration + rate limiting + Docker + full test suite ✅ COMPLETE
 
 ## 9. Agent Workflow
 
@@ -111,8 +119,15 @@ A task is complete only when:
 
 ## 12. Known Limitations
 
-- Only Task 1 and Task 2 are implemented; Tasks 3-6 are planned
-- No FastAPI app exists yet, so no runtime API to test
-- No git repository initialized (git status: "not a git repository")
-- README layout (fetcher/analyzer/scorer dirs) does not match actual flat app/ module layout
-- Rate limiting specification not yet implementable (no API layer)
+- In-memory rate limiter is per-process; it does not survive restarts
+  and is not shared across workers. Use a reverse proxy (nginx,
+  cloudflare) for multi-process or distributed rate limiting.
+- DNS rebinding defense validates DNS once at resolve time; a very
+  fast DNS change between resolve and connect is a theoretical
+  residual risk.
+- No external secrets, API keys, or proxy configuration are accepted
+  (trust_env=False).
+- The orchestrator's outer backstop (10s) is independent of the
+  shared absolute deadline (also 10s from the same start).
+- Known upstream failures are surfaced as HTTP 502; this is a
+  design choice and may be adjusted per contract.

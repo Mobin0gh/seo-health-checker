@@ -7,50 +7,39 @@ fit the existing contracts exactly.
 
 ---
 
-## 1. Page fetcher (`fetcher/`)
+## 1. Page fetcher (`app/security.py`)
 
-**Interface:** `fetcher/fetcher.py`
+**Interface:** `app/security.py` exposes the async entry point:
 
 ```python
-from app.contracts import FetchResult
+from app.security import fetch_url, SecurityError, URLValidationError
 
-class PageFetcher:
-    def __init__(
-        self,
-        timeout_ms: int = 10000,
-        max_redirects: int = 5,
-        user_agent: str = "SEOHealthChecker/0.1",
-        allowed_schemes: tuple[str, ...] = ("http", "https"),
-    ) -> None: ...
-
-    async def fetch(self, url: str) -> FetchResult:
-        """Fetch a page safely.
-
-        Safety requirements:
-        * Reject non-HTTP(S) schemes and malformed URLs.
-        * Enforce a connection/read timeout.
-        * Limit redirect count; reject further redirects.
-        * Cap response body size (e.g. 2 MB) and abort oversized responses.
-        * Never follow redirects to private/loopback/link-local addresses
-          (SSRF protection).
-        * Decode the body as UTF-8 (fall back to detected encoding on failure).
-
-        Returns a populated ``FetchResult``. On unrecoverable failure raise an
-        exception — the orchestrator decides whether to surface it or to
-        return a zero-score report with an appropriate issue.
-        """
-        ...
+async def fetch_url(
+    url: str,
+    *,
+    deadline_ms: float,
+    user_agent: str = "SEOHealthChecker/0.1",
+    max_redirects: int = 5,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+) -> FetchResult: ...
 ```
 
-**Consumes:** raw URL string.  
+**Consumes:** raw URL string + an absolute monotonic deadline (ms).  
 **Produces:** `FetchResult` with `url`, `final_url`, `status`, `headers`,
 `body`, `elapsed_ms`, `content_type`, `redirect_count`.
 
+Exceptions raised: `URLValidationError`, `DNSResolutionError`,
+`ResponseTooLarge`, `FetchTimeout`, `RedirectLimitExceeded`, `SecurityError`
+(all subclasses of `SecurityError`).
+
+The orchestrator (`app/orchestrator.py`) calls `app.security.fetch_url`
+through the module reference so tests can patch it.
+
 ---
 
-## 2. HTML analyzer (`analyzer/`)
+## 2. HTML analyzer (`app/analyzer/`)
 
-**Interface:** `analyzer/analyzer.py`
+**Interface:** `app/analyzer/analyzer.py`
 
 ```python
 from app.contracts import AnalysisResult, FetchResult
@@ -83,9 +72,9 @@ class HtmlAnalyzer:
 
 ---
 
-## 3. Scorer (`scorer/`)
+## 4. Scorer (`app/scorer/`)
 
-**Interface:** `scorer/scorer.py`
+**Interface:** `app/scorer/scorer.py`
 
 ```python
 from app.contracts import AnalysisResult, FetchResult, HealthReport, Issue, Severity
@@ -117,12 +106,88 @@ class HealthScorer:
 
 ---
 
+**Produces:** `HealthReport`. ``measurements`` includes both
+analyzer measurements and scorer-specific measurements with stable,
+namespaced keys (e.g., ``scorer.http_status``,
+``scorer.robots_exists``).
+```
+
+**Consumes:** `ScoreInput` (see below).
+**Produces:** `HealthReport`.
+
+---
+
+## 3. Resource & link checker (`app/linkchecker/`)
+
+**Interface:** `app/linkchecker/__init__.py` re-exports:
+- `ResourceChecker` with `check_robots`, `check_sitemap`, `check_all`
+- `HtmlAnalyzer` is *not* here; it lives in `app/analyzer/`
+
+### ResourceChecker
+```python
+from app.linkchecker import ResourceChecker
+from app.linkchecker.results import (
+    ResourceExists,
+    ResourceCheckResult,
+    SitemapCheckResult,
+    LinkCheckSummary,
+)
+
+class ResourceChecker:
+    @staticmethod
+    async def check_robots(
+        base_url: str,
+        deadline_ms: float,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+    ) -> ResourceCheckResult: ...
+
+    @staticmethod
+    async def check_sitemap(
+        base_url: str,
+        deadline_ms: float,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+    ) -> SitemapCheckResult: ...
+
+    @staticmethod
+    async def check_all(
+        base_url: str,
+        links: List[str],
+        deadline_ms: float,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+    ) -> tuple[ResourceCheckResult, SitemapCheckResult, LinkCheckSummary]: ...
+```
+
+**Consumes for robots/sitemap:** final page URL (after redirects) whose origin defines
+the resource location, plus an absolute monotonic deadline (ms).  
+**Produces:** populated result objects with existence (three-state), HTTP status,
+reason, detail, body (for robots/sitemap), elapsed_ms, and for sitemap:
+validity flag and URL count.
+
+**Consumes for link checking:** list of absolute URLs discovered on the page,
+same deadline.  
+**Produces:** `LinkCheckSummary` containing per-link results in input order
+(after dedup + 20-cap), checked count, broken count.
+
+All network calls go through the same `app.security.fetch_url` with the
+shared deadline. The checker respects:
+- Bounded concurrency (max 5) for link checks.
+- At most first 20 unique links (order preserved).
+- Three-state existence (`ResourceExists.TRUE/FALSE/UNKNOWN`).
+- Known exceptions mapped to explicit reason strings.
+- XML parsing that rejects DTDs (XXE safety).
+
+**Consumes for the orchestrator:** the orchestrator calls `check_all`
+with the deduplicated, capped link list and the same absolute deadline
+used for the main fetch.
+
+---
+
 ### ScoreInput
 
 A single dataclass carrying all inputs needed to produce a health report.
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from app.contracts import AnalysisResult, FetchResult
 from app.scorer import ResourceState
@@ -159,12 +224,15 @@ class ScoreInput:
 
 ## Wiring note
 
-The orchestrator (not part of this scope) will call them in order:
+The orchestrator (`app/orchestrator.py`) calls them in order:
 
 ```
-fetcher.fetch(url) → analyzer.analyze(body) → scorer.score(fetch, analysis)
+app.security.fetch_url(url, deadline_ms) → HtmlAnalyzer(base_url).analyze(body)
+    → ResourceChecker.check_all(base_url, links, deadline_ms)
+    → HealthScorer.score(ScoreInput(...)) → HealthReport
 ```
 
-and serialize the resulting `HealthReport` via `app.schemas.HealthCheckResponse`.
-Do not introduce new cross-module dependencies — each module should only import
-from `app.contracts` / `app.schemas`.
+and `app/api.py` serializes the resulting `HealthReport` via
+`app.schemas.HealthCheckResponse`.
+The orchestrator does not import Task 4's private/local result types; it
+translates them into `ScoreInput` using only public attributes.

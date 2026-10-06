@@ -41,7 +41,6 @@ import urllib.request
 from typing import Dict, List, Optional, Tuple
 
 import anyio
-import httpcore
 import httpx
 
 from app.contracts import FetchResult
@@ -504,7 +503,7 @@ async def fetch_url(
                 total = 0
                 try:
                     with anyio.fail_after(max(0.01, remaining_s)):
-                        async for chunk in response.aiter_raw():
+                        async for chunk in response.aiter_bytes():
                             total += len(chunk)
                             if total > MAX_RESPONSE_SIZE:
                                 raise ResponseTooLarge(
