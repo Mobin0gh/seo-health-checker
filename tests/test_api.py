@@ -489,5 +489,70 @@ class TestApiIntegrationWithRealApp(unittest.IsolatedAsyncioTestCase):
         self.assertIn("measurements", data)
 
 
+class TestPersianUtf8InResponse(unittest.IsolatedAsyncioTestCase):
+    """The raw HTTP response must carry proper Persian Unicode, not mojibake.
+
+    Regression: FastAPI/Starlette defaults Content-Type to
+    ``application/json`` *without* ``; charset=utf-8``.  Windows clients
+    (PowerShell ``Invoke-WebRequest``) default to cp1252 when charset is
+    absent, which turns the UTF-8 Persian bytes into mojibake
+    (``ØµÙ...``).  The charset middleware appends ``; charset=utf-8`` to
+    every application/json response so clients decode correctly.
+    """
+
+    def setUp(self):
+        app.state.rate_limiter = RollingRateLimiter()
+
+    async def test_response_contains_correct_persian_message(self):
+        # HTML with NO H1, NO meta description, NO title, NO viewport, NO canonical
+        # so the analyzer emits the expected "missing_h1" issue.
+        body = (
+            "<html><head></head><body><p>no tags</p></body></html>"
+        )
+        fetch_result = _make_fetch_result(body=body, status=200)
+        with patch("app.security.fetch_url", new=AsyncMock(return_value=fetch_result)):
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            resp = client.post("/check", json={"url": "https://example.com/"})
+
+        self.assertEqual(resp.status_code, 200)
+        ct = resp.headers.get("content-type", "")
+        self.assertIn("charset=utf-8", ct)
+
+        raw_text = resp.content.decode("utf-8")
+        self.assertIn("صفحه دارای تگ H1 نیست.", raw_text)
+
+    async def test_content_type_includes_charset_utf8(self):
+        """Every application/json response declares charset=utf-8."""
+        result = _make_fetch_result()
+        with patch("app.security.fetch_url", new=AsyncMock(return_value=result)):
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            resp = client.post("/check", json={"url": "https://example.com/"})
+
+        ct = resp.headers.get("content-type", "")
+        self.assertIn("application/json", ct)
+        self.assertIn("charset=utf-8", ct)
+
+
+class TestCharsetMiddlewareOnErrorResponses(unittest.IsolatedAsyncioTestCase):
+    """The charset middleware also covers non-200 responses."""
+
+    def setUp(self):
+        app.state.rate_limiter = RollingRateLimiter()
+
+    async def test_error_response_content_type_has_charset(self):
+        from app.security import DNSResolutionError
+        async def fail(*args, **kwargs):
+            raise DNSResolutionError("DNS returned forbidden address(es) for '169.254.169.254'")
+        with patch("app.security.fetch_url", new=AsyncMock(side_effect=fail)):
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            resp = client.post("/check", json={"url": "http://169.254.169.254/"})
+        self.assertEqual(resp.status_code, 403)
+        ct = resp.headers.get("content-type", "")
+        self.assertIn("charset=utf-8", ct)
+
+
 if __name__ == "__main__":
     unittest.main()

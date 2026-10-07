@@ -38,26 +38,8 @@ app/
 { "url": "https://example.com/" }
 ```
 
-**Response** (`HealthCheckResponse`):
-
-```json
-{
-  "requested_url": "https://example.com/",
-  "final_url": "https://example.com/",
-  "status": 200,
-  "response_time_ms": 123.4,
-  "score": 78,
-  "measurements": { "title_length": 52, "has_meta_description": true },
-  "issues": [
-    {
-      "code": "missing_meta_description",
-      "severity": "warning",
-      "message": "صفحه دارای متا توصیف نیست.",
-      "details": null
-    }
-  ]
-}
-```
+**Response** (`HealthCheckResponse`): see the real-world sample outputs
+below for complete, measured examples of this structure.
 
 ### Error mapping
 
@@ -71,6 +53,141 @@ app/
 
 A fetched non-2xx (e.g. 404) is a *successful check*: returns HTTP 200 with
 the `http_error` issue and the scorer's report.
+
+## Real-world sample outputs
+
+These are real results from live runs of the current application against
+public websites. They show the full `HealthCheckResponse` shape returned by
+`POST /check`.
+
+### Sample 1 — Google
+
+`POST /check` with `{"url": "https://www.google.com"}`:
+
+```json
+{
+  "requested_url": "https://www.google.com",
+  "final_url": "https://www.google.com",
+  "status": 200,
+  "response_time_ms": 1495.008499994874,
+  "score": 65,
+  "measurements": {
+    "scorer.http_status": 200,
+    "scorer.response_ms": 1495.008499994874,
+    "scorer.redirect_count": 0,
+    "scorer.robots_exists": true,
+    "scorer.robots_status": 200,
+    "scorer.sitemap_exists": true,
+    "scorer.sitemap_status": 200,
+    "scorer.sitemap_url_count": 23,
+    "scorer.sitemap_valid": true,
+    "scorer.links_total": 7,
+    "scorer.links_checked": 7,
+    "scorer.links_broken": 1,
+    "title_length": 6,
+    "has_title": true,
+    "meta_description_length": 159,
+    "has_meta_description": true,
+    "h1_count": 0,
+    "has_viewport": false,
+    "image_count": 1,
+    "image_alt_missing": 0,
+    "image_alt_empty": 0,
+    "has_canonical": false,
+    "html_size": 84329
+  },
+  "issues": [
+    {
+      "code": "broken_links",
+      "severity": "warning",
+      "message": "1 لینک شکسته است.",
+      "details": "تعداد: 1\nنمونه‌ها: https://www.google.com/intl/en/ads/"
+    },
+    {
+      "code": "missing_h1",
+      "severity": "warning",
+      "message": "صفحه دارای تگ H1 نیست.",
+      "details": null
+    },
+    {
+      "code": "missing_viewport",
+      "severity": "warning",
+      "message": "صفحه دارای متا تگ viewport نیست.",
+      "details": null
+    },
+    {
+      "code": "title_too_short",
+      "severity": "warning",
+      "message": "عنوان خیلی کوتاه است (6 کاراکتر).",
+      "details": null
+    },
+    {
+      "code": "missing_canonical",
+      "severity": "info",
+      "message": "صفحه دارای لینک کانونیکال نیست.",
+      "details": null
+    }
+  ]
+}
+```
+
+### Sample 2 — Example Domain
+
+`POST /check` with `{"url": "https://example.com"}`:
+
+```json
+{
+  "requested_url": "https://example.com",
+  "final_url": "https://example.com",
+  "status": 200,
+  "response_time_ms": 446.44570000469685,
+  "score": 70,
+  "measurements": {
+    "scorer.http_status": 200,
+    "scorer.response_ms": 446.44570000469685,
+    "scorer.redirect_count": 0,
+    "scorer.robots_exists": false,
+    "scorer.sitemap_exists": false,
+    "title_length": 14,
+    "has_title": true,
+    "meta_description_length": 0,
+    "has_meta_description": false,
+    "h1_count": 0,
+    "has_viewport": true,
+    "image_count": 0,
+    "image_alt_missing": 0,
+    "image_alt_empty": 0,
+    "has_canonical": false,
+    "html_size": 577
+  },
+  "issues": [
+    {
+      "code": "missing_h1",
+      "severity": "warning",
+      "message": "صفحه دارای تگ H1 نیست.",
+      "details": null
+    },
+    {
+      "code": "missing_meta_description",
+      "severity": "warning",
+      "message": "صفحه دارای متا توصیف نیست.",
+      "details": null
+    },
+    {
+      "code": "title_too_short",
+      "severity": "warning",
+      "message": "عنوان خیلی کوتاه است (14 کاراکتر).",
+      "details": null
+    },
+    {
+      "code": "missing_canonical",
+      "severity": "info",
+      "message": "صفحه دارای لینک کانونیکال نیست.",
+      "details": null
+    }
+  ]
+}
+```
 
 ## Rate limiting
 

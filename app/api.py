@@ -15,7 +15,7 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.orchestrator import (
     CheckTimeout,
@@ -36,6 +36,20 @@ app.state.rate_limiter = RollingRateLimiter()
 
 
 @app.middleware("http")
+async def _charset_middleware(request: Request, call_next):
+    """Ensure every application/json response declares charset=utf-8.
+
+    Windows clients (e.g. PowerShell Invoke-WebRequest) default to cp1252
+    when the Content-Type header omits charset, which turns the UTF-8 Persian
+    issue messages into mojibake (ØµÙ...). This middleware appends
+    '; charset=utf-8' to any application/json response that does not already
+    carry a charset parameter.
+    """
+    response: Response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("application/json") and "charset" not in ct.lower():
+        response.headers["content-type"] = ct + "; charset=utf-8"
+    return response
 async def _rate_limit_middleware(request: Request, call_next):
     if request.method == "POST" and request.url.path == "/check":
         ip = request.client.host if request.client else "unknown"
