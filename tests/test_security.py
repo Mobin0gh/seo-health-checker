@@ -153,29 +153,29 @@ class TestURLValidation(unittest.TestCase):
             validate_url(f"http://{long_label}.com/")
 
 
-class TestDNSResolution(unittest.TestCase):
+class TestDNSResolution(unittest.IsolatedAsyncioTestCase):
     """Test hostname resolution and IP validation."""
 
-    def test_resolve_public_ipv4(self):
-        ip = resolve_and_validate_host("8.8.8.8")
+    async def test_resolve_public_ipv4(self):
+        ip = await resolve_and_validate_host("8.8.8.8")
         self.assertEqual(ip, "8.8.8.8")
 
-    def test_resolve_public_ipv6(self):
-        ip = resolve_and_validate_host("2606:4700:4700::1111")
+    async def test_resolve_public_ipv6(self):
+        ip = await resolve_and_validate_host("2606:4700:4700::1111")
         self.assertEqual(ip, "2606:4700:4700::1111")
 
-    def test_resolve_hostname_with_a_record(self):
+    async def test_resolve_hostname_with_a_record(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))
             ]
-            ip = resolve_and_validate_host("example.com")
+            ip = await resolve_and_validate_host("example.com")
             self.assertEqual(ip, "93.184.216.34")
             mock_getaddrinfo.assert_called_once_with(
                 "example.com", None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
             )
 
-    def test_resolve_hostname_with_aaaa_record(self):
+    async def test_resolve_hostname_with_aaaa_record(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (
@@ -186,10 +186,10 @@ class TestDNSResolution(unittest.TestCase):
                     ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
                 )
             ]
-            ip = resolve_and_validate_host("example.com")
+            ip = await resolve_and_validate_host("example.com")
             self.assertEqual(ip, "2606:2800:220:1:248:1893:25c8:1946")
 
-    def test_resolve_hostname_mixed_a_and_aaaa(self):
+    async def test_resolve_hostname_mixed_a_and_aaaa(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0)),
@@ -202,16 +202,16 @@ class TestDNSResolution(unittest.TestCase):
                 ),
             ]
             # Should return the first (A record) because both are public.
-            ip = resolve_and_validate_host("example.com")
+            ip = await resolve_and_validate_host("example.com")
             self.assertEqual(ip, "93.184.216.34")
 
-    def test_rejects_no_dns_records(self):
+    async def test_rejects_no_dns_records(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = []  # NXDOMAIN-like
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("example.com")
+                await resolve_and_validate_host("example.com")
 
-    def test_rejects_private_ipv4(self):
+    async def test_rejects_private_ipv4(self):
         for private in ("10.0.0.1", "172.16.0.1", "192.168.1.1"):
             with self.subTest(private=private):
                 with patch("socket.getaddrinfo") as mock_getaddrinfo:
@@ -219,57 +219,57 @@ class TestDNSResolution(unittest.TestCase):
                         (socket.AF_INET, socket.SOCK_STREAM, 0, "", (private, 0))
                     ]
                     with self.assertRaises(DNSResolutionError):
-                        resolve_and_validate_host("evil.com")
+                        await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv4_loopback(self):
+    async def test_rejects_ipv4_loopback(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv4_link_local(self):
+    async def test_rejects_ipv4_link_local(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.0.1", 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv4_multicast(self):
+    async def test_rejects_ipv4_multicast(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("224.0.0.1", 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv4_reserved(self):
+    async def test_rejects_ipv4_reserved(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("240.0.0.1", 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv4_unspecified(self):
+    async def test_rejects_ipv4_unspecified(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("0.0.0.0", 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv6_loopback(self):
+    async def test_rejects_ipv6_loopback(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::1", 0, 0, 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv6_link_local(self):
+    async def test_rejects_ipv6_link_local(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (
@@ -281,9 +281,9 @@ class TestDNSResolution(unittest.TestCase):
                 )
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv6_multicast(self):
+    async def test_rejects_ipv6_multicast(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (
@@ -295,9 +295,9 @@ class TestDNSResolution(unittest.TestCase):
                 )
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv6_reserved(self):
+    async def test_rejects_ipv6_reserved(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (
@@ -309,26 +309,26 @@ class TestDNSResolution(unittest.TestCase):
                 )
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_ipv6_unspecified(self):
+    async def test_rejects_ipv6_unspecified(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::", 0, 0, 0))
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_mixed_public_and_forbidden_dns(self):
+    async def test_rejects_mixed_public_and_forbidden_dns(self):
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0)),  # public
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0)),  # loopback
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_uga_addresses(self):
+    async def test_rejects_uga_addresses(self):
         # RFC 4193 Unique Local Addresses (fd00::/8) should be rejected.
         with patch("socket.getaddrinfo") as mock_getaddrinfo:
             mock_getaddrinfo.return_value = [
@@ -341,9 +341,9 @@ class TestDNSResolution(unittest.TestCase):
                 )
             ]
             with self.assertRaises(DNSResolutionError):
-                resolve_and_validate_host("evil.com")
+                await resolve_and_validate_host("evil.com")
 
-    def test_rejects_documentation_range(self):
+    async def test_rejects_documentation_range(self):
         # RFC 5737 IPv4 documentation addresses (should be rejected by is_global).
         for doc in ("192.0.2.1", "198.51.100.1", "203.0.113.1"):
             with self.subTest(doc=doc):
@@ -352,7 +352,7 @@ class TestDNSResolution(unittest.TestCase):
                         (socket.AF_INET, socket.SOCK_STREAM, 0, "", (doc, 0))
                     ]
                     with self.assertRaises(DNSResolutionError):
-                        resolve_and_validate_host("evil.com")
+                        await resolve_and_validate_host("evil.com")
 
 
 class TestPublicRoutable(unittest.TestCase):

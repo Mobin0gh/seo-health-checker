@@ -413,6 +413,28 @@ class TestRateLimiting(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(allowed)
         self.assertGreaterEqual(retry, 1)
 
+    async def test_middleware_6th_request_returns_429(self):
+        """The actual FastAPI middleware rejects the 6th POST /check with 429."""
+        from fastapi.testclient import TestClient
+
+        app.state.rate_limiter = RollingRateLimiter()
+        client = TestClient(app)
+
+        # First 5 requests should pass through the middleware (may be 200 or 502
+        # depending on whether fetch_url is mocked; they must NOT be 429).
+        for i in range(5):
+            resp = client.post("/check", json={"url": "https://example.com/"})
+            self.assertNotEqual(
+                resp.status_code, 429,
+                f"request {i+1} was rate-limited unexpectedly",
+            )
+
+        # 6th request MUST be rejected by the middleware
+        resp = client.post("/check", json={"url": "https://example.com/"})
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.json()["detail"], "Rate limit exceeded")
+        self.assertIn("Retry-After", resp.headers)
+
     async def test_buckets_isolated_by_client_ip(self):
         limiter = RollingRateLimiter()
         a_ok = [await limiter.allow("10.0.0.1") for _ in range(5)]

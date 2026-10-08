@@ -165,7 +165,7 @@ def validate_url(url: str) -> Tuple[str, int]:
 # DNS resolution and validation
 # --------------------------------------------------------------------------- #
 
-def resolve_and_validate_host(hostname: str) -> str:
+async def resolve_and_validate_host(hostname: str) -> str:
     """Resolve ``hostname`` and validate every DNS result.
 
     Returns a single globally-routable IP address as a string.
@@ -179,13 +179,20 @@ def resolve_and_validate_host(hostname: str) -> str:
 
     The caller is expected to connect to the returned IP directly, without
     performing a second DNS lookup (which is how DNS rebinding is prevented).
+
+    DNS resolution runs in a worker thread via :func:`asyncio.to_thread` so
+    the blocking ``socket.getaddrinfo`` call never stalls the event loop.
     """
     if not hostname:
         raise DNSResolutionError("Empty hostname")
 
     try:
-        infos = socket.getaddrinfo(
-            hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo,
+            hostname,
+            None,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
         )
     except socket.gaierror as e:
         raise DNSResolutionError(f"DNS resolution failed: {e}") from e
@@ -328,7 +335,7 @@ class _ValidatedTransport(httpx.AsyncBaseTransport):
 
         # --- 2. Resolve and validate DNS ---
         try:
-            ip = resolve_and_validate_host(idna_host)
+            ip = await resolve_and_validate_host(idna_host)
         except DNSResolutionError as e:
             # Re-raise the specific exception so callers can distinguish
             # DNS-validation failures from other security issues.

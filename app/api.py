@@ -50,6 +50,9 @@ async def _charset_middleware(request: Request, call_next):
     if ct.startswith("application/json") and "charset" not in ct.lower():
         response.headers["content-type"] = ct + "; charset=utf-8"
     return response
+
+
+@app.middleware("http")
 async def _rate_limit_middleware(request: Request, call_next):
     if request.method == "POST" and request.url.path == "/check":
         ip = request.client.host if request.client else "unknown"
